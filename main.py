@@ -84,7 +84,7 @@ def update_user_data(user_id, data):
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-def create_main_keyboard(is_admin_user=False):
+def create_main_keyboard(is_admin_user=True):
     keyboard = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
     keyboard.add(types.KeyboardButton('➕ Register a new Gmail'))
     keyboard.add(types.KeyboardButton('📦 Old Gmail Sell'))
