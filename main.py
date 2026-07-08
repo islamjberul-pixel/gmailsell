@@ -251,3 +251,5 @@ while True:
         print("Error:", e)
         print("5 সেকেন্ড পর আবার চালু হচ্ছে...")
         time.sleep(5)
+        print("Bot started...")
+bot.polling(none_stop=True)
