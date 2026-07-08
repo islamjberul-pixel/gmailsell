@@ -38,7 +38,7 @@ def get_settings():
     return ref.to_dict()
 
 def main_menu():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add("➕ Register a new Gmail")
     markup.add("📁 My accounts", "💰 Balance")
     markup.add("💸 Withdraw", "⏳ Balance Hold")
@@ -47,7 +47,7 @@ def main_menu():
     return markup
 
 def admin_menu():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add("➕ Add Gmail Stock", "📋 Stock List")
     markup.add("📧 Pending Gmail", "💸 Pending Withdraw")
     markup.add("👥 All Users", "🚫 Block User")
@@ -64,7 +64,7 @@ def start(message):
         user_ref.set({'balance':0, 'hold':0, 'accounts':[], 'currency':'BDT', 'blocked': False})
     user = user_ref.get().to_dict()
     if user.get('blocked', False):
-        bot.send_message(message.chat.id, "🚫 তুমি Blocked. Admin এর সাথে যোগাযোগ করো")
+        bot.send_message(message.chat.id, "🚫 তুমি Blocked. Admin: wa.me/"+ADMIN_WHATSAPP)
         return
     bot.send_message(message.chat.id, "Welcome to BK71 CLUB Bot! 🤖", reply_markup=main_menu())
 
@@ -84,8 +84,8 @@ def handler(message):
         bot.send_message(chat_id, "🚫 তুমি Blocked")
         return
 
-    # Back Button Global
-    if text == "⬅️ Back" or text == "🔙 Back":
+    # Global Back Button
+    if text in ["⬅️ Back", "🔙 Back", "Cancel"]:
         if user_id in user_temp: del user_temp[user_id]
         if user_id in user_states: del user_states[user_id]
         bot.send_message(chat_id, "Main Menu", reply_markup=main_menu())
@@ -110,7 +110,8 @@ def handler(message):
 
     elif text == "⚙️ Settings":
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("BDT", "USD", "INR", "⬅️ Back")
+        markup.add("BDT", "USD", "INR")
+        markup.add("⬅️ Back")
         bot.send_message(chat_id, "Currency Select করো:", reply_markup=markup)
 
     elif text in CURRENCY:
@@ -144,7 +145,7 @@ def handler(message):
         bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=markup)
 
     elif text == "📦 Old Gmail Sell":
-        bot.send_message(chat_id, "Step 1/2\nOld Gmail টা দাও @gmail.com সহ:\n\n⬅️ Back লিখলে Menu তে যাবে")
+        bot.send_message(chat_id, "Step 1/2\nOld Gmail টা দাও @gmail.com সহ:\n\n⬅️ Back লিখলে Menu")
         user_temp[user_id] = {'type':'old', 'step':'email'}
 
     # ========== ADMIN PANEL ==========
@@ -191,16 +192,17 @@ def handler(message):
                 data = doc.to_dict()
                 msg += f"{i}_ {data['first_name']} {data['last_name']} | {data['email']} | {data['pass']} | {data['price']} BDT\n\n"
                 i += 1
+                if i > 50: msg += "...আরো আছে"; break
             bot.send_message(chat_id, msg, reply_markup=admin_menu())
 
     elif text == "📊 Stats" and user_id == str(ADMIN_ID):
         users = len(list(db.collection('users').get()))
         stock = len(list(db.collection('gmail_stock').get()))
         pending = len(list(db.collection('pending').get()))
-        bot.send_message(chat_id, f"📊 Stats:\nTotal User: {users}\nStock: {stock}\nPending: {pending}\nNew Gmail Price: {settings['new_gmail_price']} BDT\nOld Gmail Price: {settings['old_gmail_price']} BDT\nMin Withdraw: {settings['min_withdraw']} BDT", reply_markup=admin_menu())
+        bot.send_message(chat_id, f"📊 Stats:\nTotal User: {users}\nStock: {stock}\nPending: {pending}\nNew Gmail: {settings['new_gmail_price']} BDT\nOld Gmail: {settings['old_gmail_price']} BDT\nMin Withdraw: {settings['min_withdraw']} BDT", reply_markup=admin_menu())
 
     elif text == "➕ Add Gmail Stock" and user_id == str(ADMIN_ID):
-        bot.send_message(chat_id, "Step 1/4\nFirst Name লিখো:\n\n⬅️ Back লিখলে Cancel")
+        bot.send_message(chat_id, "Step 1/4\nFirst Name লিখো:\n\nCancel লিখলে বাদ যাবে")
         user_states[user_id] = {'state':'add_stock', 'step':'first_name', 'data':{}}
 
     elif text == "💰 Set New Gmail Price" and user_id == str(ADMIN_ID):
@@ -216,18 +218,18 @@ def handler(message):
         user_states[user_id] = {'state':'set_min'}
 
     elif text == "🚫 Block User" and user_id == str(ADMIN_ID):
-        bot.send_message(chat_id, "যাকে Block করবা তার User ID দাও:\n\n⬅️ Back লিখলে Cancel")
+        bot.send_message(chat_id, "যাকে Block করবা তার User ID দাও:\n\nCancel লিখলে বাদ")
         user_states[user_id] = {'state':'block_user'}
 
     elif text == "📢 Send Notification" and user_id == str(ADMIN_ID):
-        bot.send_message(chat_id, "সবাইকে যে Notification পাঠাবা সেটা লিখো:\n\n⬅️ Back লিখলে Cancel")
+        bot.send_message(chat_id, "সবাইকে যে Notification পাঠাবা সেটা লিখো:\n\nCancel লিখলে বাদ")
         user_states[user_id] = {'state':'send_noti'}
 
     # ========== STATE HANDLER ==========
     elif user_id in user_states:
         state = user_states[user_id]
 
-        if text == "⬅️ Back":
+        if text.lower() == "cancel":
             del user_states[user_id]
             bot.send_message(chat_id, "Cancel করা হয়েছে", reply_markup=admin_menu())
             return
@@ -258,22 +260,39 @@ def handler(message):
                     'last_name':state['data']['last_name'],
                     'price':settings['new_gmail_price']
                 })
-                bot.send_message(chat_id, f"✅ Stock Add Complete: {state['data']['email']}", reply_markup=admin_menu())
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                markup.add("✅ Complete & Add Another", "🔙 Back")
+                bot.send_message(chat_id, f"✅ Stock Add: {state['data']['email']}\n\nআরো Add করবা?", reply_markup=markup)
+                state['step'] = 'complete'
+
+        elif state['step'] == 'complete':
+            if text == "✅ Complete & Add Another":
+                bot.send_message(chat_id, "Step 1/4\nFirst Name লিখো:")
+                state['step'] = 'first_name'
+                state['data'] = {}
+            else:
                 del user_states[user_id]
+                bot.send_message(chat_id, "Done", reply_markup=admin_menu())
 
         elif state['state'] == 'set_new_price':
-            db.collection('settings').document('config').update({'new_gmail_price': int(text)})
-            bot.send_message(chat_id, f"✅ New Gmail Price {text} BDT Set", reply_markup=admin_menu())
+            try:
+                db.collection('settings').document('config').update({'new_gmail_price': int(text)})
+                bot.send_message(chat_id, f"✅ New Gmail Price {text} BDT Set", reply_markup=admin_menu())
+            except: bot.send_message(chat_id, "শুধু নাম্বার দাও")
             del user_states[user_id]
 
         elif state['state'] == 'set_old_price':
-            db.collection('settings').document('config').update({'old_gmail_price': int(text)})
-            bot.send_message(chat_id, f"✅ Old Gmail Price {text} BDT Set", reply_markup=admin_menu())
+            try:
+                db.collection('settings').document('config').update({'old_gmail_price': int(text)})
+                bot.send_message(chat_id, f"✅ Old Gmail Price {text} BDT Set", reply_markup=admin_menu())
+            except: bot.send_message(chat_id, "শুধু নাম্বার দাও")
             del user_states[user_id]
 
         elif state['state'] == 'set_min':
-            db.collection('settings').document('config').update({'min_withdraw': int(text)})
-            bot.send_message(chat_id, f"✅ Min Withdraw {text} BDT Set", reply_markup=admin_menu())
+            try:
+                db.collection('settings').document('config').update({'min_withdraw': int(text)})
+                bot.send_message(chat_id, f"✅ Min Withdraw {text} BDT Set", reply_markup=admin_menu())
+            except: bot.send_message(chat_id, "শুধু নাম্বার দাও")
             del user_states[user_id]
 
         elif state['state'] == 'block_user':
@@ -294,23 +313,19 @@ def handler(message):
 
     # ========== OLD GMAIL FLOW ==========
     elif user_id in user_temp and user_temp[user_id]['type']=='old':
-        if text == "⬅️ Back":
-            del user_temp[user_id]
-            bot.send_message(chat_id, "Cancel", reply_markup=main_menu())
-            return
-
         if user_temp[user_id]['step'] == 'email':
             if not re.match(r"[^@]+@gmail\.com", text):
                 bot.send_message(chat_id, "❌ ভুল Format। @gmail.com সহ পুরা Gmail দাও")
                 return
             user_temp[user_id]['email'] = text
-            bot.send_message(chat_id, "Step 2/2\nPassword দাও:\n\n⬅️ Back লিখলে Cancel")
+            bot.send_message(chat_id, "Step 2/2\nPassword দাও:\n\nCancel লিখলে বাদ")
             user_temp[user_id]['step'] = 'pass'
         elif user_temp[user_id]['step'] == 'pass':
             user_temp[user_id]['pass'] = text
             settings = get_settings()
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("✅ Submit Old Gmail", callback_data="submit_old"))
+            markup.add(types.InlineKeyboardButton("❌ Cancel", callback_data="cancel_old"))
             bot.send_message(chat_id, f"Gmail: {user_temp[user_id]['email']}\nPrice: {settings['old_gmail_price']} BDT", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -324,6 +339,11 @@ def callback(call):
 
     if call.data == "back_menu":
         bot.send_message(call.message.chat.id, "Main Menu", reply_markup=main_menu())
+        return
+
+    if call.data == "cancel_old":
+        if user_id in user_temp: del user_temp[user_id]
+        bot.send_message(call.message.chat.id, "Cancel", reply_markup=main_menu())
         return
 
     if "wd_" in call.data:
@@ -340,7 +360,7 @@ def callback(call):
             'user_id': user_id, 'email': gmail['email'], 'pass': gmail['pass'], 'price': gmail['price'], 'type':'new'
         })
         db.collection('gmail_stock').document(gmail['email']).delete()
-        bot.send_message(call.message.chat.id, f"✅ Submit! {gmail['price']} BDT Hold এ চলে গেছে। Admin Approve করলে Main Balance এ যাবে")
+        bot.send_message(call.message.chat.id, f"✅ Submit! {gmail['price']} BDT Hold এ চলে গেছে।")
         del user_temp[user_id]
 
     elif call.data == "submit_old":
@@ -351,7 +371,7 @@ def callback(call):
         db.collection('pending').document(pending_id).set({
             'user_id': user_id, 'email': data['email'], 'pass': data['pass'], 'price': settings['old_gmail_price'], 'type':'old'
         })
-        bot.send_message(call.message.chat.id, f"✅ Submit! {settings['old_gmail_price']} BDT Hold এ চলে গেছে। Admin Approve করলে Main Balance এ যাবে")
+        bot.send_message(call.message.chat.id, f"✅ Submit! {settings['old_gmail_price']} BDT Hold এ চলে গেছে।")
         del user_temp[user_id]
 
     # ADMIN APPROVE/REJECT
