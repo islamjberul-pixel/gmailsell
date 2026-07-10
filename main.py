@@ -6,6 +6,7 @@ import os
 from firebase_admin import credentials, firestore
 from telebot import types
 import time
+from datetime import datetime
 
 # ========== RAILWAY VARIABLE থেকে নেওয়া ==========
 TOKEN = os.getenv("TOKEN")
@@ -35,7 +36,8 @@ def main_menu():
 
 def admin_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("➕ Add Gmail Stock", "👥 All Users")
+    markup.add("➕ Add Gmail Stock", "📦 Stock Gmail List") # NEW
+    markup.add("📊 Sell Stock Stats", "👥 All Users") # NEW
     markup.add("💸 Pending Withdraw", "📧 Pending Gmail")
     markup.add("🔙 Back")
     return markup
@@ -124,6 +126,48 @@ def handler(message):
         else:
             bot.send_message(chat_id, "তুমি Admin না", reply_markup=main_menu())
 
+    # NEW FEATURE 1: STOCK LIST
+    elif text == "📦 Stock Gmail List" and user_id == str(ADMIN_ID):
+        stock_ref = db.collection('gmail_stock').get()
+        if len(stock_ref) == 0:
+            bot.send_message(chat_id, "📦 Stock Empty", reply_markup=admin_menu())
+        else:
+            msg = f"📦 Stock এ মোট {len(stock_ref)} টা Gmail আছে:\n\n"
+            i = 1
+            for doc in stock_ref:
+                data = doc.to_dict()
+                msg += f"{i}. 👤 {data['name']}\n📧 {data['email']}\n💰 {data['price']} BDT\n\n"
+                i += 1
+            bot.send_message(chat_id, msg, reply_markup=admin_menu())
+
+    # NEW FEATURE 2: SELL STATS
+    elif text == "📊 Sell Stock Stats" and user_id == str(ADMIN_ID):
+        stock_count = len(list(db.collection('gmail_stock').get()))
+        sold_count = len(list(db.collection('accounts_sold').get()))
+
+        msg = f"📊 Sell Statistics\n"
+        msg += f"📦 Stock এ আছে: {stock_count} টা Gmail\n"
+        msg += f"✅ Sell হয়েছে: {sold_count} টা Gmail\n"
+        msg += f"---------- Sell History ----------\n\n"
+
+        sold_ref = db.collection('accounts_sold').order_by('time', direction=firestore.Query.DESCENDING).limit(10).get()
+        if len(sold_ref) == 0:
+            msg += "এখনো কোনো Sell হয় নাই"
+        else:
+            for doc in sold_ref:
+                data = doc.to_dict()
+                dt = datetime.fromtimestamp(data['time'])
+                date_str = dt.strftime("%d.%m.%Y %H:%M")
+                msg += f"👤 User: {data['user_name']}\n"
+                msg += f"⏰ Time: {date_str}\n"
+                msg += f"👤 First Name: {data['name']}\n"
+                msg += f"📧 Email: {data['email']}\n"
+                msg += f"🔑 Password: {data['pass']}\n"
+                msg += f"💰 Price: {data['price']} BDT\n"
+                msg += "------------------------\n\n"
+
+        bot.send_message(chat_id, msg, reply_markup=admin_menu())
+
     elif text == "📧 Pending Gmail" and user_id == str(ADMIN_ID):
         pending_ref = db.collection('pending').get()
         if len(pending_ref) == 0: bot.send_message(chat_id, "কোনো Pending নাই", reply_markup=admin_menu())
@@ -151,7 +195,7 @@ def handler(message):
         users = db.collection('users').get()
         bot.send_message(chat_id, f"Total Users: {len(users)}", reply_markup=admin_menu())
 
-    # NEW 4 STEP ADD STOCK
+    # 4 STEP ADD STOCK
     elif text == "➕ Add Gmail Stock" and user_id == str(ADMIN_ID):
         bot.send_message(chat_id, "Step 1/4\nFirst Name লিখো:")
         user_temp[user_id] = {'type':'add_stock', 'step':'name'}
@@ -161,17 +205,14 @@ def handler(message):
             user_temp[user_id]['name'] = text
             bot.send_message(chat_id, "Step 2/4\nEmail লিখো:")
             user_temp[user_id]['step'] = 'email'
-
         elif user_temp[user_id]['step'] == 'email':
             user_temp[user_id]['email'] = text
             bot.send_message(chat_id, "Step 3/4\nPassword লিখো:")
             user_temp[user_id]['step'] = 'password'
-
         elif user_temp[user_id]['step'] == 'password':
             user_temp[user_id]['password'] = text
             bot.send_message(chat_id, "Step 4/4\nPrice লিখো: শুধু সংখ্যা\nExample: 12")
             user_temp[user_id]['step'] = 'price'
-
         elif user_temp[user_id]['step'] == 'price':
             try:
                 data = user_temp[user_id]
@@ -238,6 +279,19 @@ def callback(call):
         data = db.collection('pending').document(pending_id).get().to_dict()
         u_ref = db.collection('users').document(data['user_id'])
         u = u_ref.get().to_dict()
+
+        # NEW: Sell History তে Save করা
+        user_info = db.collection('users').document(data['user_id']).get().to_dict()
+        db.collection('accounts_sold').add({
+            'user_id': data['user_id'],
+            'user_name': f"User_{data['user_id'][-4:]}", # শেষ 4 ডিজিট
+            'email': data['email'],
+            'pass': data['pass'],
+            'name': data['email'].split('@')[0], # First name
+            'price': data['price'],
+            'time': time.time()
+        })
+
         u_ref.update({'hold': u['hold'] + data['price']})
         u['accounts'].append({'email':data['email'],'pass':data['pass'],'price':data['price'],'status':'Hold'})
         u_ref.update({'accounts': u['accounts']})
