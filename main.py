@@ -22,7 +22,6 @@ db = firestore.client()
 
 bot = telebot.TeleBot(TOKEN)
 user_temp = {}
-user_states = {}
 CURRENCY = {"BDT":1, "USD":0.0092, "INR":0.76}
 
 def main_menu():
@@ -152,18 +151,41 @@ def handler(message):
         users = db.collection('users').get()
         bot.send_message(chat_id, f"Total Users: {len(users)}", reply_markup=admin_menu())
 
+    # NEW 4 STEP ADD STOCK
     elif text == "➕ Add Gmail Stock" and user_id == str(ADMIN_ID):
-        bot.send_message(chat_id, "Format: email|password|name|price\nExample: abc@gmail.com|123|Abc|12")
-        user_states[user_id] = 'add_stock'
+        bot.send_message(chat_id, "Step 1/4\nFirst Name লিখো:")
+        user_temp[user_id] = {'type':'add_stock', 'step':'name'}
 
-    elif user_id in user_states and user_states[user_id] == 'add_stock':
-        try:
-            email, password, name, price = text.split('|')
-            db.collection('gmail_stock').document(email).set({'email':email,'pass':password,'name':name,'price':int(price)})
-            bot.send_message(chat_id, f"✅ Stock Add: {email}", reply_markup=admin_menu())
-        except:
-            bot.send_message(chat_id, "Format ভুল। email|password|name|price", reply_markup=admin_menu())
-        user_states[user_id] = None
+    elif user_id in user_temp and user_temp[user_id]['type'] == 'add_stock':
+        if user_temp[user_id]['step'] == 'name':
+            user_temp[user_id]['name'] = text
+            bot.send_message(chat_id, "Step 2/4\nEmail লিখো:")
+            user_temp[user_id]['step'] = 'email'
+
+        elif user_temp[user_id]['step'] == 'email':
+            user_temp[user_id]['email'] = text
+            bot.send_message(chat_id, "Step 3/4\nPassword লিখো:")
+            user_temp[user_id]['step'] = 'password'
+
+        elif user_temp[user_id]['step'] == 'password':
+            user_temp[user_id]['password'] = text
+            bot.send_message(chat_id, "Step 4/4\nPrice লিখো: শুধু সংখ্যা\nExample: 12")
+            user_temp[user_id]['step'] = 'price'
+
+        elif user_temp[user_id]['step'] == 'price':
+            try:
+                data = user_temp[user_id]
+                price = int(text)
+                db.collection('gmail_stock').document(data['email']).set({
+                    'email':data['email'],
+                    'pass':data['password'],
+                    'name':data['name'],
+                    'price':price
+                })
+                bot.send_message(chat_id, f"✅ Stock Add হয়েছে!\n👤 Name: {data['name']}\n📧 Email: {data['email']}\n💰 Price: {price} BDT", reply_markup=admin_menu())
+                del user_temp[user_id]
+            except:
+                bot.send_message(chat_id, "Price ভুল। শুধু সংখ্যা দাও। Example: 12", reply_markup=admin_menu())
 
     elif text == "🔙 Back":
         bot.send_message(chat_id, "Main Menu", reply_markup=main_menu())
