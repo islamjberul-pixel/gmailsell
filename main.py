@@ -5,7 +5,7 @@ from firebase_admin import credentials, firestore
 from telebot import types
 import time
 
-TOKEN = "8933524406:AAF9lhtG11dj9PcaR5YF9HUzwDBEJJ9CGh8"
+TOKEN = "8850356807:AAEwHB5mxxTPmuOAu8K-6-qZnII2f20_rsQ"
 ADMIN_ID = 7602082599 # এখানে তোমার Telegram User ID বসাও
 ADMIN_WHATSAPP = "8801796103936"
 
