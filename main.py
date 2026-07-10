@@ -12,10 +12,11 @@ from datetime import datetime
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 ADMIN_WHATSAPP = "8801796103936"
+SUPPORT_USERNAME = "Sahi2508" # Telegram Support
 
-# Firebase Connect - Variable থেকে
+# Firebase Connect
 firebase_key = os.getenv("FIREBASE_KEY")
-cred_dict = json.loads(firebase_key) # String কে Dict বানানো
+cred_dict = json.loads(firebase_key)
 cred = credentials.Certificate(cred_dict)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
@@ -25,31 +26,53 @@ bot = telebot.TeleBot(TOKEN)
 user_temp = {}
 CURRENCY = {"BDT":1, "USD":0.0092, "INR":0.76}
 
+# Settings Collection থেকে Refer Amount নেওয়া
+def get_refer_amount():
+    setting = db.collection('settings').document('refer').get()
+    if setting.exists:
+        return setting.to_dict().get('amount', 1)
+    else:
+        db.collection('settings').document('refer').set({'amount': 1})
+        return 1
+
 def main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("➕ Register a new Gmail")
     markup.add("📁 My accounts", "💰 Balance")
     markup.add("💸 Withdraw", "⏳ Balance Hold")
-    markup.add("📦 Old Gmail Sell", "⚙️ Settings")
+    markup.add("📦 Old Gmail Sell", "👥 Refer & Earn") # NEW
+    markup.add("⚙️ Settings", "📞 Support") # NEW
     markup.add("👑 Admin Panel")
     return markup
 
 def admin_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("➕ Add Gmail Stock", "📦 Stock Gmail List")
-    markup.add("📝 Price Update", "💼 Hold Panel") # NEW
-    markup.add("💰 Hold to Main", "📢 Notification") # NEW
+    markup.add("📝 Price Update", "💼 Hold Panel")
+    markup.add("💰 Hold to Main", "📢 Notification")
     markup.add("📊 Sell Stock Stats", "👥 All Users")
     markup.add("💸 Pending Withdraw", "📧 Pending Gmail")
+    markup.add("🎁 Refer Setting") # NEW
     markup.add("🔙 Back")
     return markup
 
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = str(message.from_user.id)
+    ref_id = None
+    if len(message.text.split()) > 1: # Refer Link থেকে আসলে
+        ref_id = message.text.split()[1]
+
     user_ref = db.collection('users').document(user_id)
     if not user_ref.get().exists:
-        user_ref.set({'balance':0, 'hold':0, 'accounts':[], 'currency':'BDT'})
+        user_ref.set({
+            'balance':0, 'hold':0, 'accounts':[], 'currency':'BDT',
+            'referred_by': ref_id, 'refer_earned':0, 'refer_count':0
+        })
+        # Refer করা হলে Referrer কে Notify
+        if ref_id and ref_id!= user_id:
+            bot.send_message(ref_id, f"✅ নতুন User Join করলো তোমার Link দিয়ে\nUser ID: {user_id}\nসে 1 টা Gmail Submit + Main Balance পেলে তুমি {get_refer_amount()} BDT পাবা")
+
     bot.send_message(message.chat.id, "Welcome to BK71 CLUB Bot!", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda m: True)
@@ -60,7 +83,6 @@ def handler(message):
     user_ref = db.collection('users').document(user_id)
     user_doc = user_ref.get()
     user = user_doc.to_dict() if user_doc.exists else None
-
     if not user: return
 
     # ========== USER PANEL ==========
@@ -68,7 +90,23 @@ def handler(message):
         rate = CURRENCY[user['currency']]
         bal = user['balance'] * rate
         submitted = len(user['accounts'])
-        bot.send_message(chat_id, f"💰 Main Balance: {bal:.2f} {user['currency']}\n⏳ Hold: {user['hold']} BDT\n📧 Total Submitted: {submitted} Gmail", reply_markup=main_menu())
+        bot.send_message(chat_id, f"💰 Main Balance: {bal:.2f} {user['currency']}\n⏳ Hold: {user['hold']} BDT\n📧 Total Submitted: {submitted} Gmail\n🎁 Refer Earn: {user.get('refer_earned',0)} BDT", reply_markup=main_menu())
+
+    elif text == "👥 Refer & Earn":
+        refer_link = f"https://t.me/{bot.get_me().username}?start={user_id}"
+        refer_amount = get_refer_amount()
+        msg = f"🎁 Refer & Earn\n"
+        msg += f"প্রতি Refer এ: {refer_amount} BDT\n"
+        msg += f"শর্ত: Refer করা User 1 টা Gmail Submit করে Admin Approve পেয়ে Main Balance পেলে তুমি Bonus পাবা\n\n"
+        msg += f"তোমার Refer Link:\n`{refer_link}`\n\n"
+        msg += f"Total Refer: {user.get('refer_count',0)} জন\n"
+        msg += f"Total Refer Earn: {user.get('refer_earned',0)} BDT"
+        bot.send_message(chat_id, msg, parse_mode="Markdown", reply_markup=main_menu())
+
+    elif text == "📞 Support":
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("📞 @Sahi2508 এর সাথে কথা বলো", url=f"https://t.me/{SUPPORT_USERNAME}"))
+        bot.send_message(chat_id, "সমস্যা হলে Support এ মেসেজ দাও:", reply_markup=markup)
 
     elif text == "⏳ Balance Hold":
         bot.send_message(chat_id, f"⏳ Hold Balance: {user['hold']} BDT\nAdmin Approve করলে Main Balance এ Add হবে", reply_markup=main_menu())
@@ -128,171 +166,139 @@ def handler(message):
         else:
             bot.send_message(chat_id, "তুমি Admin না", reply_markup=main_menu())
 
-    # 1. PRICE UPDATE
+    elif text == "🎁 Refer Setting" and user_id == str(ADMIN_ID):
+        current = get_refer_amount()
+        bot.send_message(chat_id, f"বর্তমান Refer Bonus: {current} BDT\nনতুন Amount লিখো:")
+        user_temp[user_id] = {'type':'refer_setting'}
+
+    # বাকি Admin Panel আগের মতোই
     elif text == "📝 Price Update" and user_id == str(ADMIN_ID):
         stock_ref = db.collection('gmail_stock').get()
         if len(stock_ref) == 0: bot.send_message(chat_id, "Stock Empty", reply_markup=admin_menu()); return
-        msg = "Price Change করার জন্য Email এ Click করো:\n\n"
         markup = types.InlineKeyboardMarkup()
         for doc in stock_ref:
             data = doc.to_dict()
             markup.add(types.InlineKeyboardButton(f"{data['email']} - {data['price']} BDT", callback_data=f"price_{doc.id}"))
-        bot.send_message(chat_id, msg, reply_markup=markup)
+        bot.send_message(chat_id, "Price Change করার জন্য Email এ Click করো:", reply_markup=markup)
 
-    # 2. HOLD PANEL - Approve/Reject
     elif text == "💼 Hold Panel" and user_id == str(ADMIN_ID):
         pending_ref = db.collection('pending').get()
         if len(pending_ref) == 0: bot.send_message(chat_id, "কোনো Pending নাই", reply_markup=admin_menu())
         else:
             for doc in pending_ref:
                 data = doc.to_dict()
-                user_info = db.collection('users').document(data['user_id']).get().to_dict()
-                msg = f"👤 User ID: {data['user_id']}\n"
-                msg += f"📧 Gmail: {data['email']}\n"
-                msg += f"💰 Price: {data['price']} BDT\n"
-                msg += f"📦 Type: {data['type']}"
+                msg = f"👤 User ID: {data['user_id']}\n📧 Gmail: {data['email']}\n💰 Price: {data['price']} BDT\n📦 Type: {data['type']}"
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("✅ Approve", callback_data=f"approve_{doc.id}"))
                 markup.add(types.InlineKeyboardButton("❌ Reject", callback_data=f"reject_{doc.id}"))
                 bot.send_message(chat_id, msg, reply_markup=markup)
 
-    # 3. HOLD TO MAIN
     elif text == "💰 Hold to Main" and user_id == str(ADMIN_ID):
         bot.send_message(chat_id, "User ID লিখো যার Hold থেকে Main এ টাকা পাঠাবা:")
         user_temp[user_id] = {'type':'hold_to_main', 'step':'userid'}
 
-    # 4. NOTIFICATION
     elif text == "📢 Notification" and user_id == str(ADMIN_ID):
         bot.send_message(chat_id, "সব User কে কি Message পাঠাবা লিখো:")
         user_temp[user_id] = {'type':'notification'}
 
-    # 5. STOCK LIST
     elif text == "📦 Stock Gmail List" and user_id == str(ADMIN_ID):
         stock_ref = db.collection('gmail_stock').get()
-        if len(stock_ref) == 0:
-            bot.send_message(chat_id, "📦 Stock Empty", reply_markup=admin_menu())
-        else:
-            msg = f"📦 Stock এ মোট {len(stock_ref)} টা Gmail আছে:\n\n"
-            i = 1
-            for doc in stock_ref:
-                data = doc.to_dict()
-                msg += f"{i}. 👤 {data['name']}\n📧 {data['email']}\n💰 {data['price']} BDT\n\n"
-                i += 1
-            bot.send_message(chat_id, msg, reply_markup=admin_menu())
+        msg = f"📦 Stock এ মোট {len(stock_ref)} টা Gmail আছে:\n\n"
+        i = 1
+        for doc in stock_ref:
+            data = doc.to_dict()
+            msg += f"{i}. 👤 {data['name']}\n📧 {data['email']}\n💰 {data['price']} BDT\n\n"
+            i += 1
+        bot.send_message(chat_id, msg, reply_markup=admin_menu())
 
-    # SELL STATS
     elif text == "📊 Sell Stock Stats" and user_id == str(ADMIN_ID):
         stock_count = len(list(db.collection('gmail_stock').get()))
         sold_count = len(list(db.collection('accounts_sold').get()))
-        msg = f"📊 Sell Statistics\n📦 Stock এ আছে: {stock_count} টা Gmail\n✅ Sell হয়েছে: {sold_count} টা Gmail\n---------- Sell History ----------\n\n"
+        msg = f"📊 Sell Statistics\n📦 Stock: {stock_count} টা\n✅ Sell: {sold_count} টা\n\n"
         sold_ref = db.collection('accounts_sold').order_by('time', direction=firestore.Query.DESCENDING).limit(10).get()
-        if len(sold_ref) == 0: msg += "এখনো কোনো Sell হয় নাই"
-        else:
-            for doc in sold_ref:
-                data = doc.to_dict()
-                dt = datetime.fromtimestamp(data['time'])
-                date_str = dt.strftime("%d.%m.%Y %H:%M")
-                msg += f"👤 User: {data['user_name']}\n⏰ Time: {date_str}\n👤 First Name: {data['name']}\n📧 Email: {data['email']}\n💰 Price: {data['price']} BDT\n------------------------\n\n"
+        for doc in sold_ref:
+            data = doc.to_dict()
+            dt = datetime.fromtimestamp(data['time'])
+            msg += f"👤 {data['user_name']} | {data['email']} | {data['price']} BDT\n"
         bot.send_message(chat_id, msg, reply_markup=admin_menu())
-
-    elif text == "📧 Pending Gmail" and user_id == str(ADMIN_ID):
-        bot.send_message(chat_id, "এটা এখন 💼 Hold Panel এ চলে গেছে", reply_markup=admin_menu())
 
     elif text == "💸 Pending Withdraw" and user_id == str(ADMIN_ID):
         wd_ref = db.collection('withdraws').where('status', '==', 'Pending').get()
-        if len(wd_ref) == 0: bot.send_message(chat_id, "কোনো Pending Withdraw নাই", reply_markup=admin_menu())
-        else:
-            for doc in wd_ref:
-                data = doc.to_dict()
-                msg = f"ID: {doc.id}\nUser: {data['user_id']}\nAmount: {data['amount']}\nMethod: {data['method']}\nNumber: {data['number']}"
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("✅ Paid", callback_data=f"paid_{doc.id}"))
-                bot.send_message(chat_id, msg, reply_markup=markup)
+        for doc in wd_ref:
+            data = doc.to_dict()
+            msg = f"ID: {doc.id}\nUser: {data['user_id']}\nAmount: {data['amount']}\nMethod: {data['method']}\nNumber: {data['number']}"
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("✅ Paid", callback_data=f"paid_{doc.id}"))
+            bot.send_message(chat_id, msg, reply_markup=markup)
 
     elif text == "👥 All Users" and user_id == str(ADMIN_ID):
         users = db.collection('users').get()
         bot.send_message(chat_id, f"Total Users: {len(users)}", reply_markup=admin_menu())
 
-    # 4 STEP ADD STOCK
     elif text == "➕ Add Gmail Stock" and user_id == str(ADMIN_ID):
         bot.send_message(chat_id, "Step 1/4\nFirst Name লিখো:")
         user_temp[user_id] = {'type':'add_stock', 'step':'name'}
 
+    elif text == "🔙 Back":
+        bot.send_message(chat_id, "Main Menu", reply_markup=main_menu())
+
     # TEMP HANDLER
     elif user_id in user_temp:
         temp = user_temp[user_id]
+        if temp['type'] == 'refer_setting':
+            try:
+                new_amount = int(text)
+                db.collection('settings').document('refer').set({'amount': new_amount})
+                bot.send_message(chat_id, f"✅ Refer Bonus {new_amount} BDT Set হলো", reply_markup=admin_menu())
+                del user_temp[user_id]
+            except: bot.send_message(chat_id, "ভুল Amount")
 
-        # ADD STOCK
-        if temp['type'] == 'add_stock':
+        elif temp['type'] == 'add_stock':
             if temp['step'] == 'name':
-                temp['name'] = text
-                bot.send_message(chat_id, "Step 2/4\nEmail লিখো:")
-                temp['step'] = 'email'
+                temp['name'] = text; bot.send_message(chat_id, "Step 2/4\nEmail লিখো:"); temp['step'] = 'email'
             elif temp['step'] == 'email':
-                temp['email'] = text
-                bot.send_message(chat_id, "Step 3/4\nPassword লিখো:")
-                temp['step'] = 'password'
+                temp['email'] = text; bot.send_message(chat_id, "Step 3/4\nPassword লিখো:"); temp['step'] = 'password'
             elif temp['step'] == 'password':
-                temp['password'] = text
-                bot.send_message(chat_id, "Step 4/4\nPrice লিখো: শুধু সংখ্যা\nExample: 12")
-                temp['step'] = 'price'
+                temp['password'] = text; bot.send_message(chat_id, "Step 4/4\nPrice লিখো:"); temp['step'] = 'price'
             elif temp['step'] == 'price':
                 try:
                     price = int(text)
-                    db.collection('gmail_stock').document(temp['email']).set({
-                        'email':temp['email'],'pass':temp['password'],'name':temp['name'],'price':price
-                    })
-                    bot.send_message(chat_id, f"✅ Stock Add হয়েছে!\n👤 Name: {temp['name']}\n📧 Email: {temp['email']}\n💰 Price: {price} BDT", reply_markup=admin_menu())
-                    del user_temp[user_id]
-                except:
-                    bot.send_message(chat_id, "Price ভুল। শুধু সংখ্যা দাও। Example: 12", reply_markup=admin_menu())
+                    db.collection('gmail_stock').document(temp['email']).set({'email':temp['email'],'pass':temp['password'],'name':temp['name'],'price':price})
+                    bot.send_message(chat_id, f"✅ Stock Add হয়েছে!", reply_markup=admin_menu()); del user_temp[user_id]
+                except: bot.send_message(chat_id, "Price ভুল")
 
-        # HOLD TO MAIN
         elif temp['type'] == 'hold_to_main':
             if temp['step'] == 'userid':
-                temp['target_id'] = text
-                bot.send_message(chat_id, "কত টাকা Main Balance এ পাঠাবা Amount লিখো:")
-                temp['step'] = 'amount'
+                temp['target_id'] = text; bot.send_message(chat_id, "কত টাকা পাঠাবা:"); temp['step'] = 'amount'
             elif temp['step'] == 'amount':
                 try:
                     amount = int(text)
                     target_ref = db.collection('users').document(temp['target_id'])
                     target = target_ref.get().to_dict()
-                    if target['hold'] < amount:
-                        bot.send_message(chat_id, "User এর Hold এ এত টাকা নাই", reply_markup=admin_menu())
+                    if target['hold'] < amount: bot.send_message(chat_id, "Hold এ টাকা নাই", reply_markup=admin_menu())
                     else:
                         target_ref.update({'hold': firestore.Increment(-amount), 'balance': firestore.Increment(amount)})
-                        bot.send_message(chat_id, f"✅ {amount} BDT {temp['target_id']} এর Main এ Add হলো", reply_markup=admin_menu())
-                        bot.send_message(temp['target_id'], f"✅ Admin {amount} BDT তোমার Main Balance এ Add করেছে")
+                        bot.send_message(chat_id, f"✅ {amount} BDT Add হলো", reply_markup=admin_menu())
+                        bot.send_message(temp['target_id'], f"✅ Admin {amount} BDT Main Balance এ Add করেছে")
                     del user_temp[user_id]
-                except: bot.send_message(chat_id, "ভুল Amount", reply_markup=admin_menu())
+                except: bot.send_message(chat_id, "ভুল Amount")
 
-        # NOTIFICATION
         elif temp['type'] == 'notification':
             users = db.collection('users').get()
             count = 0
             for u in users:
-                try:
-                    bot.send_message(u.id, f"📢 Admin Notification:\n\n{text}")
-                    count += 1
+                try: bot.send_message(u.id, f"📢 Admin Notification:\n\n{text}"); count += 1
                 except: pass
-            bot.send_message(chat_id, f"✅ {count} জন User কে Notification পাঠানো হয়েছে", reply_markup=admin_menu())
-            del user_temp[user_id]
+            bot.send_message(chat_id, f"✅ {count} জন কে পাঠানো হয়েছে", reply_markup=admin_menu()); del user_temp[user_id]
 
-        # OLD GMAIL
         elif temp['type']=='old':
             if temp['step'] == 'email':
-                temp['email'] = text
-                bot.send_message(chat_id, "Step 2/2\nPassword দাও:")
-                temp['step'] = 'pass'
+                temp['email'] = text; bot.send_message(chat_id, "Step 2/2\nPassword দাও:"); temp['step'] = 'pass'
             elif temp['step'] == 'pass':
                 temp['pass'] = text
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("✅ Submit Old Gmail", callback_data="submit_old"))
                 bot.send_message(chat_id, f"Gmail: {temp['email']}\nPrice: 6 BDT", reply_markup=markup)
-
-    elif text == "🔙 Back":
-        bot.send_message(chat_id, "Main Menu", reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback(call):
@@ -300,19 +306,10 @@ def callback(call):
     user_ref = db.collection('users').document(user_id)
     user = user_ref.get().to_dict()
 
-    # 1. PRICE UPDATE
     if "price_" in call.data and user_id == str(ADMIN_ID):
         email_id = call.data.split("_")[1]
         user_temp[user_id] = {'type':'update_price', 'email':email_id}
-        bot.send_message(call.message.chat.id, f"এই Gmail এর নতুন Price লিখো: {email_id}")
-
-    elif user_id in user_temp and user_temp[user_id]['type'] == 'update_price':
-        try:
-            new_price = int(call.message.text)
-            db.collection('gmail_stock').document(user_temp[user_id]['email']).update({'price': new_price})
-            bot.send_message(call.message.chat.id, f"✅ Price Update: {new_price} BDT", reply_markup=admin_menu())
-            del user_temp[user_id]
-        except: bot.send_message(call.message.chat.id, "ভুল Price")
+        bot.send_message(call.message.chat.id, f"নতুন Price লিখো: {email_id}")
 
     if "wd_" in call.data:
         method = call.data.split("_")[1]
@@ -323,35 +320,47 @@ def callback(call):
     elif call.data == "submit_new":
         gmail = user_temp[user_id]['data']
         pending_id = str(time.time())
-        db.collection('pending').document(pending_id).set({
-            'user_id': user_id, 'email': gmail['email'], 'pass': gmail['pass'], 'price': gmail['price'], 'type':'new'
-        })
+        db.collection('pending').document(pending_id).set({'user_id': user_id, 'email': gmail['email'], 'pass': gmail['pass'], 'price': gmail['price'], 'type':'new'})
         db.collection('gmail_stock').document(gmail['email']).delete()
-        bot.send_message(call.message.chat.id, "✅ Submit! Admin Approve করলে Balance Hold এ যাবে")
-        del user_temp[user_id]
+        bot.send_message(call.message.chat.id, "✅ Submit! Admin Approve করলে Balance Hold এ যাবে"); del user_temp[user_id]
 
     elif call.data == "submit_old":
         data = user_temp[user_id]
         pending_id = str(time.time())
-        db.collection('pending').document(pending_id).set({
-            'user_id': user_id, 'email': data['email'], 'pass': data['pass'], 'price': 6, 'type':'old'
-        })
-        bot.send_message(call.message.chat.id, "✅ Submit! Admin Approve করলে 6 BDT Hold এ যাবে")
-        del user_temp[user_id]
+        db.collection('pending').document(pending_id).set({'user_id': user_id, 'email': data['email'], 'pass': data['pass'], 'price': 6, 'type':'old'})
+        bot.send_message(call.message.chat.id, "✅ Submit! Admin Approve করলে 6 BDT Hold এ যাবে"); del user_temp[user_id]
 
     elif "approve_" in call.data and user_id == str(ADMIN_ID):
         pending_id = call.data.split("_")[1]
         data = db.collection('pending').document(pending_id).get().to_dict()
         u_ref = db.collection('users').document(data['user_id'])
         u = u_ref.get().to_dict()
+
+        # Sell History Save
         db.collection('accounts_sold').add({
             'user_id': data['user_id'],'user_name': f"User_{data['user_id'][-4:]}",
             'email': data['email'],'pass': data['pass'],'name': data['email'].split('@')[0],
             'price': data['price'],'time': time.time()
         })
+
+        # Hold এ Add
         u_ref.update({'hold': u['hold'] + data['price']})
         u['accounts'].append({'email':data['email'],'pass':data['pass'],'price':data['price'],'status':'Hold'})
         u_ref.update({'accounts': u['accounts']})
+
+        # REFER BONUS - যদি User Main Balance পায়
+        if u.get('referred_by'):
+            referrer_ref = db.collection('users').document(u['referred_by'])
+            referrer = referrer_ref.get().to_dict()
+            if referrer and referrer.get('refer_count', 0) == 0: # প্রথম Submit এ Bonus
+                refer_amount = get_refer_amount()
+                referrer_ref.update({
+                    'balance': firestore.Increment(refer_amount),
+                    'refer_earned': firestore.Increment(refer_amount),
+                    'refer_count': firestore.Increment(1)
+                })
+                bot.send_message(u['referred_by'], f"🎉 Refer Bonus! {u['user_id']} 1 টা Gmail Submit করায় তুমি {refer_amount} BDT পেয়েছো")
+
         db.collection('pending').document(pending_id).delete()
         bot.send_message(call.message.chat.id, f"✅ Approved. {data['price']} BDT Hold এ গেছে")
         bot.send_message(data['user_id'], f"✅ তোমার {data['email']} Approve হয়েছে। {data['price']} BDT Hold এ আছে")
@@ -390,5 +399,4 @@ while True:
         bot.infinity_polling(timeout=180, long_polling_timeout=180)
     except Exception as e:
         print("Error:", e)
-        print("5 সেকেন্ড পর আবার চালু হচ্ছে...")
         time.sleep(5)
