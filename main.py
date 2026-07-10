@@ -1,18 +1,24 @@
 import telebot
 import random
 import firebase_admin
+import json
+import os
 from firebase_admin import credentials, firestore
 from telebot import types
 import time
 
-TOKEN = "8850356807:AAEwHB5mxxTPmuOAu8K-6-qZnII2f20_rsQ"
-ADMIN_ID = 7602082599 # এখানে তোমার Telegram User ID বসাও
+# ========== RAILWAY VARIABLE থেকে নেওয়া ==========
+TOKEN = os.getenv("TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 ADMIN_WHATSAPP = "8801796103936"
 
-# Firebase Connect
-cred = credentials.Certificate("serviceAccountKey.json")
+# Firebase Connect - Variable থেকে
+firebase_key = os.getenv("FIREBASE_KEY")
+cred_dict = json.loads(firebase_key) # String কে Dict বানানো
+cred = credentials.Certificate(cred_dict)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
+# ===============================================
 
 bot = telebot.TeleBot(TOKEN)
 user_temp = {}
@@ -25,7 +31,7 @@ def main_menu():
     markup.add("📁 My accounts", "💰 Balance")
     markup.add("💸 Withdraw", "⏳ Balance Hold")
     markup.add("📦 Old Gmail Sell", "⚙️ Settings")
-    markup.add("👑 Admin Panel") # সবাই দেখবে, ভিতরে Check হবে
+    markup.add("👑 Admin Panel")
     return markup
 
 def admin_menu():
@@ -49,7 +55,10 @@ def handler(message):
     chat_id = message.chat.id
     text = message.text
     user_ref = db.collection('users').document(user_id)
-    user = user_ref.get().to_dict() if user_ref.get().exists else None
+    user_doc = user_ref.get()
+    user = user_doc.to_dict() if user_doc.exists else None
+
+    if not user: return
 
     # ========== USER PANEL ==========
     if text == "💰 Balance":
@@ -81,7 +90,7 @@ def handler(message):
         bot.send_message(chat_id, "Main Menu", reply_markup=main_menu())
 
     elif text == "💸 Withdraw":
-        if user['balance'] < 25: 
+        if user['balance'] < 25:
             bot.send_message(chat_id, "Balance কম। Min 25 BDT লাগবে", reply_markup=main_menu()); return
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("Bkash", callback_data="wd_bkash"))
@@ -202,7 +211,6 @@ def callback(call):
         bot.send_message(call.message.chat.id, "✅ Submit! Admin Approve করলে 6 BDT Hold এ যাবে")
         del user_temp[user_id]
 
-    # ADMIN APPROVE/REJECT
     elif "approve_" in call.data and user_id == str(ADMIN_ID):
         pending_id = call.data.split("_")[1]
         data = db.collection('pending').document(pending_id).get().to_dict()
